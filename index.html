@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#010807">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon-192.png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <title>FRONTLINE ROADS</title>
+  <style id="criticalStyles">
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #010807; color: #dffdf4; font-family: ui-monospace, monospace; }
+    [hidden] { display: none !important; }
+    #assetRecovery { position: fixed; z-index: 9999; inset: 0; display: grid; place-items: center; padding: 24px; background: #010807; color: #dffdf4; }
+    #assetRecovery[hidden] { display: none !important; }
+    #assetRecovery > div { width: min(520px, 100%); padding: 18px; border: 1px solid rgba(101,255,208,.58); background: #03110e; }
+    #assetRecovery strong { display: block; color: #65ffd0; font-size: 18px; }
+    #assetRecovery p { margin: 10px 0 0; color: #9fcfc2; line-height: 1.55; }
+    #assetRecovery button { width: 100%; margin-top: 16px; padding: 12px 14px; border: 1px solid rgba(101,255,208,.72); background: #062019; color: #dffdf4; font: inherit; font-weight: 700; }
+  </style>
+  <script>
+    globalThis.__FRONTLINE_RELEASE__ = Object.freeze({ version: '0.38.79', directory: 'frontline-roads' });
+    (() => {
+      const release = globalThis.__FRONTLINE_RELEASE__;
+      const navigatorRef = globalThis.navigator;
+      const locationRef = globalThis.location;
+      const sessionStorageRef = globalThis.sessionStorage;
+      if (!navigatorRef?.serviceWorker || !locationRef) return;
+      const params = new URLSearchParams(locationRef.search ?? '');
+      const refreshRequested = params.get('refresh') === release.version || params.get('refresh') === '1';
+      const resetKey = `frontline-cache-reset:${release.version}`;
+      if (refreshRequested) {
+        let alreadyReset = false;
+        try { alreadyReset = sessionStorageRef?.getItem(resetKey) === '1'; } catch {}
+        if (!alreadyReset) {
+          try { sessionStorageRef?.setItem(resetKey, '1'); } catch {}
+          const clearWorkers = navigatorRef.serviceWorker.getRegistrations
+            ? navigatorRef.serviceWorker.getRegistrations().then(registrations => Promise.all(registrations.filter(registration => { try { return new URL(registration.scope).pathname.includes('/frontline-roads/'); } catch { return false; } }).map(registration => registration.unregister?.())))
+            : Promise.resolve();
+          const clearCaches = globalThis.caches?.keys
+            ? globalThis.caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('frontline-roads-')).map(key => globalThis.caches.delete(key))))
+            : Promise.resolve();
+          Promise.allSettled([clearWorkers, clearCaches]).finally(() => {
+            params.delete('refresh');
+            params.set('entry', release.version);
+            const query = params.toString();
+            locationRef.replace?.(`${locationRef.pathname}${query ? `?${query}` : ''}${locationRef.hash ?? ''}`);
+          });
+          return;
+        }
+      }
+      const localHost = ['localhost', '127.0.0.1', '::1'].includes(locationRef.hostname);
+      if (locationRef.protocol !== 'https:' && !localHost) return;
+      const appRoot = new URL('./', locationRef.href);
+      const workerUrl = new URL('sw.js', appRoot);
+      workerUrl.searchParams.set('v', release.version);
+      const reloadKey = `frontline-sw-reload:${release.version}`;
+      navigatorRef.serviceWorker.addEventListener('controllerchange', () => {
+        try {
+          if (sessionStorageRef?.getItem(reloadKey) === '1') return;
+          sessionStorageRef?.setItem(reloadKey, '1');
+        } catch {}
+        locationRef.reload?.();
+      }, { once: true });
+      globalThis.__FRONTLINE_SW_READY__ = navigatorRef.serviceWorker
+        .register(workerUrl.href, { scope: appRoot.href, updateViaCache: 'none' })
+        .then(async registration => {
+          await registration.update?.().catch?.(() => {});
+          return registration;
+        })
+        .catch(error => {
+          console.warn('Early service worker update failed', error);
+          return null;
+        });
+    })();
+    globalThis.__FRONTLINE_STYLES_READY__ = (() => {
+      const release = globalThis.__FRONTLINE_RELEASE__;
+      const projectSegment = location.pathname.split('/').filter(Boolean)[0] ?? '';
+      const projectRoot = projectSegment ? `/${projectSegment}/` : '/';
+      const baseCandidates = [
+        new URL('./src/styles/app.css', location.href),
+        new URL(`${projectRoot}${release.directory}/src/styles/app.css`, location.origin)
+      ];
+      const unique = [...new Map(baseCandidates.map(url => [url.href, url])).values()];
+      const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+      const load = (url, timeoutMs = 5000) => new Promise((resolve, reject) => {
+        const link = document.createElement('link');
+        let settled = false;
+        const finish = (callback, value) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          callback(value);
+        };
+        const timer = setTimeout(() => {
+          link.remove();
+          finish(reject, new Error(`Stylesheet timed out: ${url}`));
+        }, timeoutMs);
+        link.rel = 'stylesheet';
+        link.dataset.frontlineStyles = 'true';
+        link.onload = () => finish(resolve, link);
+        link.onerror = () => {
+          link.remove();
+          finish(reject, new Error(`Stylesheet failed: ${url}`));
+        };
+        link.href = url;
+        document.head.appendChild(link);
+      });
+      return (async () => {
+        let lastError = null;
+        for (let round = 0; round < 2; round += 1) {
+          for (const candidate of unique) {
+            const url = new URL(candidate.href);
+            url.searchParams.set('v', release.version);
+            if (round > 0) url.searchParams.set('retry', String(Date.now()));
+            try { return await load(url.href); }
+            catch (error) { lastError = error; }
+          }
+          await delay(1200);
+        }
+        throw lastError ?? new Error('Stylesheet could not be loaded.');
+      })();
+    })();
+    globalThis.__FRONTLINE_SHOW_BOOT_RECOVERY__ = message => {
+      const recovery = document.querySelector('#assetRecovery');
+      if (!recovery) return;
+      const detail = recovery.querySelector('p');
+      if (detail && message) detail.textContent = message;
+      recovery.removeAttribute('hidden');
+      recovery.querySelector('button')?.addEventListener('click', () => location.reload(), { once: true });
+    };
+    globalThis.__FRONTLINE_BOOT_DONE__ = false;
+    const bootRecoveryMessages = {
+      en: 'Resume loading did not finish. Reload to return from the saved game.',
+      ja: '復帰時の読み込みが完了しませんでした。再読み込みすると保存済みのゲームから復帰します。',
+      zh: '恢复加载未完成。重新加载后可从已保存的游戏继续。',
+      'zh-TW': '復原載入未完成。重新載入後可從已儲存的遊戲繼續。',
+      ko: '복귀 로딩이 완료되지 않았습니다. 다시 불러오면 저장된 게임에서 복귀합니다.',
+      vi: 'Quá trình tải khôi phục chưa hoàn tất. Tải lại để quay lại từ bản lưu.',
+      'pt-BR': 'O carregamento de retomada não foi concluído. Recarregue para voltar ao jogo salvo.',
+      tr: 'Devam yüklemesi tamamlanmadı. Kaydedilmiş oyuna dönmek için yeniden yükleyin.',
+      id: 'Pemuatan pemulihan belum selesai. Muat ulang untuk kembali dari game tersimpan.',
+      ru: 'Загрузка восстановления не завершилась. Перезагрузите страницу, чтобы вернуться к сохранённой игре.',
+      'es-419': 'La carga de reanudación no terminó. Recarga para volver desde la partida guardada.'
+    };
+    const bootRecoveryLanguage = () => {
+      try { return localStorage.getItem('frontline-roads.language') || navigator.language || 'en'; } catch { return navigator.language || 'en'; }
+    };
+    const bootRecoveryText = () => {
+      const raw = bootRecoveryLanguage();
+      const code = raw === 'zh-TW' || raw?.toLowerCase?.().startsWith('zh-tw') ? 'zh-TW'
+        : raw === 'pt-BR' || raw?.toLowerCase?.().startsWith('pt-br') ? 'pt-BR'
+          : raw === 'es-419' || raw?.toLowerCase?.().startsWith('es') ? 'es-419'
+            : String(raw || 'en').slice(0, 2);
+      return bootRecoveryMessages[code] || bootRecoveryMessages.en;
+    };
+    globalThis.__FRONTLINE_BOOT_TIMER__ = setTimeout(() => {
+      if (!globalThis.__FRONTLINE_BOOT_DONE__) globalThis.__FRONTLINE_SHOW_BOOT_RECOVERY__(bootRecoveryText());
+    }, 12000);
+    globalThis.__FRONTLINE_BOOT_COMPLETE__ = () => {
+      globalThis.__FRONTLINE_BOOT_DONE__ = true;
+      clearTimeout(globalThis.__FRONTLINE_BOOT_TIMER__);
+      globalThis.__FRONTLINE_BOOT_TIMER__ = null;
+    };
+  </script>
+</head>
+<body>
+  <main id="app">
+    <canvas id="mapCanvas" aria-label="道路地図" data-i18n-aria-label="aria.roadMap"></canvas>
+
+    <header id="statusBar">
+      <span>FRONTLINE ROADS</span>
+      <span id="lifecycleText" data-i18n="static.lifecycleBoot">BOOT</span>
+    </header>
+
+    <section id="basePlacementOverlay" class="overlay">
+      <div class="panel">
+        <div id="bootLanguageButtons" class="bootLanguageButtons" role="group" aria-label="Language" data-i18n-aria-label="language.title"></div>
+        <div class="panelHeader">
+          <p class="eyebrow" data-i18n="static.basePlacementEyebrow">RADAR INITIALIZATION // 初回拠点設置</p>
+          <h1 data-i18n="static.basePlacementTitle">1km以内の道路を直接選択</h1>
+          <p data-i18n="static.basePlacementDescription">最初に現在地から1km以内の道路を選び、移動せず開始できます。開始後は実際の移動に合わせて周辺道路を順次取得し、未確認地域をMAPへ追加します。</p>
+        </div>
+        <div id="baseMapViewport" class="baseMapViewport" aria-label="拠点候補道路の選択地図" data-i18n-aria-label="aria.baseViewport">
+          <div class="baseMapViewportLabel"><span data-i18n="static.roadSelectionLabel">MAP // ROAD SELECTION</span><small data-i18n="static.roadSelectionHint">道路をタップして拠点候補を指定</small></div>
+          <div class="baseMapViewportReticle" aria-hidden="true"></div>
+          <div class="mapControls" aria-label="地図操作" data-i18n-aria-label="aria.mapControls">
+            <button id="zoomIn" type="button" aria-label="拡大" data-i18n-aria-label="aria.zoomIn">＋</button>
+            <button id="zoomOut" type="button" aria-label="縮小" data-i18n-aria-label="aria.zoomOut">−</button>
+            <button id="recenter" type="button" aria-label="地図を中央へ戻す" data-i18n-aria-label="aria.recenter">◎</button>
+          </div>
+        </div>
+        <div class="panelFooter">
+          <p id="basePlacementStatus" role="status">初期化しています…</p>
+          <button id="confirmBase" class="primary" type="button" disabled data-i18n="static.confirmBase">この道路に拠点を設置</button>
+          <button id="retryLocation" class="secondary" type="button" data-i18n="static.retryLocation">位置情報と道路を再取得</button>
+          <small data-i18n="static.privacyNotice">正確な移動履歴は保存しません。保存時は道路地図の基準地点を約10m単位へ丸めます。移動先の道路取得時には、その周辺位置を外部道路データサービスへ送信します。</small>
+        </div>
+      </div>
+    </section>
+
+    <section id="playingHud" class="gameUi" hidden>
+      <div class="hudHeader">
+        <div class="combatStats">
+          <span><small data-i18n="static.homeHp">本拠地HP</small><strong id="cityHp">100/100</strong></span>
+          <span><small data-i18n="static.enemySquads">敵部隊</small><strong id="enemyCount">0</strong></span>
+          <span><small data-i18n="static.civLevel">文明Lv.</small><strong id="civilizationLevel">0</strong></span>
+        </div>
+        <div class="topActions">
+          <button id="baseCommandButton" type="button" data-i18n="static.bases">BASES // 拠点</button>
+          <button id="civilizationButton" type="button" data-i18n="static.civ">CIV // 文明</button>
+          <button id="suppliesButton" type="button" data-i18n="static.items">ITEMS // 物資</button>
+          <button id="menuButton" type="button" data-i18n="static.menu">MENU</button>
+        </div>
+        <div id="resourceSummary" class="resourceSummary" role="group" aria-label="保有資材" data-i18n-aria-label="aria.resourceSummary"></div>
+        <div id="baseSummary" class="baseSummary">拠点設置済み</div>
+        <div id="gameMapControls" class="gameMapControls" aria-label="戦術地図操作" data-i18n-aria-label="aria.tacticalMapControls">
+          <button id="gameZoomIn" type="button" aria-label="拡大" title="拡大" data-i18n-aria-label="aria.zoomIn" data-i18n-title="aria.zoomIn">＋</button>
+          <button id="gameZoomOut" type="button" aria-label="縮小" title="縮小" data-i18n-aria-label="aria.zoomOut" data-i18n-title="aria.zoomOut">−</button>
+          <button id="focusSelectedBase" type="button" aria-label="選択中の拠点へ移動" title="選択中の拠点へ移動" data-i18n="static.focusBaseShort" data-i18n-aria-label="aria.focusSelectedBase" data-i18n-title="aria.focusSelectedBase">拠</button>
+          <button id="focusPlayer" type="button" aria-label="現在地へ移動" title="現在地へ移動" data-i18n="static.focusPlayerShort" data-i18n-aria-label="aria.focusPlayer" data-i18n-title="aria.focusPlayer">現</button>
+        </div>
+        <div id="storageWarning" class="storageWarning" hidden></div>
+      </div>
+      <aside id="contextPanel" class="contextPanel" hidden>
+        <strong id="contextTitle"></strong>
+        <div id="contextText" class="contextMetrics"></div>
+        <div id="contextActions"></div>
+      </aside>
+      <div id="combatTools" class="combatTools" aria-label="防衛設備" data-i18n-aria-label="aria.tacticalTools"></div>
+    </section>
+
+    <aside id="offlineSummary" class="offlineSummary" hidden>
+      <strong data-i18n="static.offlineTitle">不在中も世界は進行しました</strong>
+      <p id="offlineText"></p>
+      <button id="offlineClose" type="button" data-i18n="static.confirm">確認</button>
+    </aside>
+
+
+
+    <section id="gameOverOverlay" class="modalOverlay gameOverOverlay" hidden aria-label="作戦終了" data-i18n-aria-label="static.gameOverLabel">
+      <div class="modalCard gameOverCard">
+        <header class="modalHeader">
+          <div><span class="eyebrow" data-i18n="static.gameOverEyebrow">OPERATION TERMINATED</span><h1 id="gameOverTitle" data-i18n="static.gameOverTitle">本拠地が破壊されました</h1></div>
+        </header>
+        <div class="modalBody gameOverBody">
+          <p id="gameOverMessage" class="gameOverMessage" data-i18n="static.gameOverMessage">防衛線は崩壊し、作戦継続は不可能です。</p>
+          <p id="gameOverDetails" class="gameOverDetails" hidden></p>
+          <section class="gameOverStatsBlock">
+            <h2 data-i18n="static.gameOverStatsTitle">作戦結果</h2>
+            <div id="gameOverStats" class="gameOverStats"></div>
+          </section>
+          <div class="gameOverActions">
+            <button id="gameOverReview" type="button" data-i18n="static.gameOverReview">戦況を確認</button>
+            <button id="gameOverNewRun" type="button" data-i18n="static.gameOverNewRun">新しく始める</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <aside id="gameOverReviewBanner" class="gameOverReviewBanner" hidden>
+      <strong data-i18n="static.gameOverReviewBanner">作戦終了：進行は停止しています</strong>
+      <div>
+        <button id="gameOverReopen" type="button" data-i18n="static.gameOverReopen">作戦結果を開く</button>
+        <button id="gameOverBannerNewRun" type="button" data-i18n="static.gameOverNewRun">新しく始める</button>
+      </div>
+    </aside>
+
+    <section id="baseCommandPanel" class="modalOverlay" hidden aria-label="拠点司令部" data-i18n-aria-label="static.baseCommandLabel">
+      <div class="modalCard baseCommandModalCard">
+        <header class="modalHeader"><div><span class="eyebrow" data-i18n="static.baseCommandEyebrow">BASE COMMAND</span><h1 data-i18n="static.baseCommandTitle">拠点司令部</h1></div><button id="closeBaseCommand" type="button">×</button></header>
+        <div id="baseCommandBody" class="modalBody"></div>
+      </div>
+    </section>
+
+    <section id="deploymentPanel" class="modalOverlay deploymentOverlay" hidden aria-label="選択目標への派兵" data-i18n-aria-label="static.deploymentLabel">
+      <div class="modalCard deploymentModalCard">
+        <header class="modalHeader"><div><span class="eyebrow" data-i18n="static.deploymentEyebrow">FIELD OPERATIONS</span><h1 id="deploymentTitle">選択目標への派兵</h1></div><button id="closeDeployment" type="button">×</button></header>
+        <div id="deploymentBody" class="modalBody"></div>
+      </div>
+    </section>
+
+    <section id="civilizationPanel" class="modalOverlay" hidden aria-label="文明と生産" data-i18n-aria-label="static.civilizationLabel">
+      <div class="modalCard civilizationCard">
+        <header class="modalHeader"><div><span class="eyebrow" data-i18n="static.civilizationEyebrow">CIVILIZATION CONTROL</span><h1 data-i18n="static.civilizationTitle">文明・資源・生産</h1></div><button id="closeCivilization" type="button">×</button></header>
+        <div id="civilizationBody" class="modalBody"></div>
+      </div>
+    </section>
+
+    <section id="suppliesPanel" class="modalOverlay" hidden aria-label="道端物資とインベントリ" data-i18n-aria-label="static.suppliesLabel">
+      <div class="modalCard suppliesCard">
+        <header class="modalHeader"><div><span class="eyebrow" data-i18n="static.suppliesEyebrow">ROADSIDE SUPPLIES</span><h1 data-i18n="static.suppliesTitle">道端物資・消耗品</h1></div><button id="closeSupplies" type="button">×</button></header>
+        <div id="suppliesBody" class="modalBody"></div>
+      </div>
+    </section>
+
+    <section id="menuPanel" class="modalOverlay" hidden aria-label="メニュー" data-i18n-aria-label="menu.title">
+      <div class="modalCard menuCard">
+        <header class="modalHeader"><div><span class="eyebrow" data-i18n="static.menuEyebrow">SYSTEM MENU</span><h1 data-i18n="menu.title">メニュー</h1></div><button id="closeMenu" type="button">×</button></header>
+        <div class="modalBody menuBody">
+          <div class="uiTabBar" role="tablist" aria-label="メニュー表示切替" data-i18n-aria-label="aria.menuSwitch">
+            <button type="button" class="active" data-menu-tab="ops" data-i18n="menu.tabOps">作戦</button>
+            <button type="button" data-menu-tab="guide" data-i18n="menu.tabGuide">遊び方</button>
+            <button type="button" data-menu-tab="records">戦績</button>
+            <button type="button" data-menu-tab="display" data-i18n="menu.tabDisplay">表示</button>
+            <button type="button" data-menu-tab="system" data-i18n="menu.tabSystem">保存</button>
+          </div>
+          <section class="uiTabPanel active" data-menu-panel="ops">
+            <div id="operationGuidanceContent"><p class="emptyText" data-i18n="menu.opsLoading">作戦目標を取得しています。</p></div>
+          </section>
+          <section class="uiTabPanel" data-menu-panel="guide">
+            <h2 data-i18n="menu.guideTitle">遊び方</h2>
+            <div id="menuGuideContent" class="helpGrid compactHelpGrid"></div>
+          </section>
+          <section class="uiTabPanel" data-menu-panel="records">
+            <div id="recordsContent"><p class="emptyText">戦績を取得しています。</p></div>
+          </section>
+          <section class="uiTabPanel" data-menu-panel="display">
+            <h2 data-i18n="menu.displayTitle">レーダー表示</h2>
+            <p class="sectionNote" data-i18n="menu.displayNote">表示だけを変更します。ゲーム進行やセーブ内容には影響しません。</p>
+            <div class="radarSettingButtons">
+              <button id="radarQualityButton" type="button">表示品質：標準</button>
+              <button id="radarMotionButton" type="button" aria-pressed="true">アニメーション：ON</button>
+            </div>
+            <div class="languageSettings">
+              <h3 data-i18n="language.title">言語</h3>
+              <p id="languageDescription" class="sectionNote" data-i18n="language.description">画面表示に使う言語を切り替えます。ゲーム進行やセーブ内容には影響しません。</p>
+              <div id="languageButtons" class="radarSettingButtons" role="group" aria-label="Language" data-i18n-aria-label="language.title"></div>
+            </div>
+          </section>
+          <section class="uiTabPanel" data-menu-panel="system">
+            <h2 data-i18n="menu.systemTitle">保存・初期化</h2>
+            <p class="sectionNote" data-i18n="menu.systemNote">通常は自動保存されます。端末を変える前や更新前に手動保存できます。完全初期化は現在のセーブ、道路キャッシュ、旧形式の退避データを削除します。</p>
+            <div class="menuActionGrid">
+              <button id="manualSave" class="wideButton" type="button" data-i18n="menu.saveReady">現在の状態を保存</button>
+              <button id="menuReset" class="wideButton danger" type="button" data-i18n="menu.reset">ゲームを完全初期化</button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <div id="notification" class="notification" role="status"></div>
+    <footer><span data-i18n="static.footerPrefix">開発版</span> <span id="versionText"></span></footer>
+  </main>
+  <aside id="assetRecovery" hidden role="alert">
+    <div><strong data-i18n="static.assetRecoveryTitle">表示データを読み込めませんでした</strong><p data-i18n="static.assetRecoveryText">通信状態を確認して再読み込みしてください。ゲームのセーブデータは削除されません。</p><button type="button" data-i18n="static.assetRecoveryButton">保存済みゲームを再読み込み</button></div>
+  </aside>
+  <script type="module">
+    const release = globalThis.__FRONTLINE_RELEASE__;
+    const projectSegment = location.pathname.split('/').filter(Boolean)[0] ?? '';
+    const projectRoot = projectSegment ? `/${projectSegment}/` : '/';
+    const baseCandidates = [
+      new URL('./src/app/bootstrap.js', location.href),
+      new URL(`${projectRoot}${release.directory}/src/app/bootstrap.js`, location.origin)
+    ];
+    const unique = [...new Map(baseCandidates.map(url => [url.href, url])).values()];
+    const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+    const withTimeout = (promise, timeoutMs, label) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+      promise.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+    });
+    async function importApplication() {
+      let lastError = null;
+      for (let round = 0; round < 2; round += 1) {
+        for (const candidate of unique) {
+          const url = new URL(candidate.href);
+          url.searchParams.set('v', release.version);
+          if (round > 0) url.searchParams.set('retry', String(Date.now()));
+          try { return await withTimeout(import(url.href), 7000, 'Application module'); }
+          catch (error) { lastError = error; }
+        }
+        await delay(500);
+      }
+      throw lastError ?? new Error('Application module could not be loaded.');
+    }
+    try {
+      await withTimeout(globalThis.__FRONTLINE_STYLES_READY__, 12000, 'Stylesheet');
+      await importApplication();
+    } catch (error) {
+      console.error('FRONTLINE ROADS asset recovery failed', error);
+      globalThis.__FRONTLINE_SHOW_BOOT_RECOVERY__?.('復帰時の表示データを読み込めませんでした。再読み込みすると保存済みのゲームから復帰します。');
+    }
+  </script>
+</body>
+</html>
