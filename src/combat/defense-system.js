@@ -10,7 +10,7 @@ import { applyMedicalAreaHealing } from './friendly-healing-system.js';
 
 const MAX_ACTIONS_PER_UPDATE = 128;
 
-function setTowerAim(tower, entry, position, splashRadius = 0) {
+function setTowerAim(state, tower, entry, position, splashRadius = 0) {
   if (!tower || !entry?.enemy || !entry.position) return;
   tower.currentTargetEnemyId = entry.enemy.id;
   tower.currentAimPoint = { x: entry.position.x, y: entry.position.y };
@@ -106,7 +106,7 @@ function fireTower(state, tower, definition, position, spatial, events) {
       clearTowerAim(tower);
       return false;
     }
-    setTowerAim(tower, target, position);
+    setTowerAim(state, tower, target, position);
     damageEnemy(state, target.enemy, definition.damage, events, spatial);
     events?.emit('combat:shot', { type: tower.type, from: position, to: target.position, targetEnemyId: target.enemy.id, primaryTargetEnemyId: target.enemy.id });
     return true;
@@ -122,7 +122,7 @@ function fireTower(state, tower, definition, position, spatial, events) {
       if (count > bestCount) { best = candidate; bestCount = count; }
     }
     const hit = best.position;
-    setTowerAim(tower, best, position, definition.blastRadius);
+    setTowerAim(state, tower, best, position, definition.blastRadius);
     const maximumTargets = Math.max(1, Number(definition.maxTargets) || 1);
     const splashMultiplier = Math.max(0, Math.min(1, Number(definition.splashMultiplier) || 0));
     const blastTargets = spatial.query(hit, definition.blastRadius)
@@ -147,7 +147,7 @@ function fireTower(state, tower, definition, position, spatial, events) {
     const affected = [...targets]
       .sort((a, b) => distanceSquared(a.position, position) - distanceSquared(b.position, position))
       .slice(0, definition.maxTargets);
-    setTowerAim(tower, affected[0], position);
+    setTowerAim(state, tower, affected[0], position);
     for (const entry of affected) {
       const enemy = entry.enemy;
       enemy.slowTimer = Math.max(enemy.slowTimer, definition.slowSeconds);
