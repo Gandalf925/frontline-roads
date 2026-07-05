@@ -1,7 +1,7 @@
 'use strict';
 const CACHE_PREFIX = 'frontline-roads-';
-const RELEASE_VERSION = '0.38.81';
-const CACHE_NAME = `${CACHE_PREFIX}v0-38-81-phase5-pages-road-config-hotfix`;
+const RELEASE_VERSION = '0.38.82';
+const CACHE_NAME = `${CACHE_PREFIX}v0-38-82-phase5-barrier-command-hotfix`;
 const APP_SHELL = [
   './',
   './index.html',
@@ -170,7 +170,37 @@ function canonicalRequest(request) {
   return new Request(url.href, { method: 'GET', headers: request.headers, mode: request.mode, credentials: request.credentials, redirect: request.redirect });
 }
 
+function isBuildSystemRequest(request) {
+  return new URL(request.url).pathname.endsWith('/src/combat/build-system.js');
+}
+
+function patchBuildSystemSource(source) {
+  return String(source).replace(
+    "function barrierCandidate(type, edge, point, anchor = null, section = null) {\n  return {\n    type,\n    kind: 'barrier',\n    edgeId: edge.id,",
+    "function barrierCandidate(type, edge, point, anchor = null, section = null) {\n  const sectionId = section?.id ?? edge.id;\n  return {\n    type,\n    kind: 'barrier',\n    nodeId: sectionId,\n    edgeId: edge.id,"
+  );
+}
+
+async function servePatchedBuildSystem(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const direct = await cache.match(request);
+  const canonical = direct ? null : canonicalRequest(request);
+  let response = direct ?? (canonical ? await cache.match(canonical) : null);
+  if (!response) {
+    try { response = await cacheResponse(request, await fetchWithTimeout(request)); }
+    catch { return Response.error(); }
+  }
+  const headers = new Headers(response.headers);
+  headers.set('content-type', 'text/javascript; charset=utf-8');
+  return new Response(patchBuildSystemSource(await response.clone().text()), {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
 async function serveApplicationAsset(request) {
+  if (isBuildSystemRequest(request)) return servePatchedBuildSystem(request);
   // Cache-first without background revalidation: application assets are
   // immutable within a release (the cache name embeds the release version and
   // install pre-caches the full shell), so re-fetching on every hit only
