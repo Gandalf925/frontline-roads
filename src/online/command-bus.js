@@ -4,9 +4,28 @@ import { worldNow } from '../core/utilities.js';
 
 export const COMMAND_LOG_MAX_ENTRIES = 1000;
 
+function commandLogNextSeq(commands = [], fallback = 1) {
+  return Math.max(
+    Math.floor(Number(fallback) || 0),
+    commands.reduce((max, command) => Math.max(max, Math.max(1, Math.floor(Number(command?.seq) || 0)) + 1), 1)
+  );
+}
+
 export function ensureRuntimeCommandLog(state, { maxEntries = COMMAND_LOG_MAX_ENTRIES } = {}) {
   state.runtime ??= {};
+  const cap = Math.max(1, Math.floor(Number(maxEntries) || COMMAND_LOG_MAX_ENTRIES));
   const source = state.runtime.commandLog;
+
+  // Hot path: current saves already hold normalized command entries. Do not
+  // deep-clone the entire log on every UI command; that scales linearly with
+  // play history and causes visible input lag during build/upgrade actions.
+  if (source && source.version === 1 && Array.isArray(source.commands)) {
+    source.nextSeq = commandLogNextSeq(source.commands, source.nextSeq);
+    if (source.commands.length > cap) source.commands.splice(0, source.commands.length - cap);
+    state.runtime.commandLog = source;
+    return source;
+  }
+
   const commands = Array.isArray(source?.commands)
     ? source.commands
         .filter(command => command && typeof command.type === 'string')
@@ -18,14 +37,10 @@ export function ensureRuntimeCommandLog(state, { maxEntries = COMMAND_LOG_MAX_EN
         }))
         .filter(command => command.seq > 0)
     : [];
-  const nextSeq = Math.max(
-    Math.floor(Number(source?.nextSeq) || 0),
-    commands.reduce((max, command) => Math.max(max, command.seq + 1), 1)
-  );
   state.runtime.commandLog = {
     version: 1,
-    nextSeq,
-    commands: commands.slice(Math.max(0, commands.length - Math.max(1, maxEntries)))
+    nextSeq: commandLogNextSeq(commands, source?.nextSeq),
+    commands: commands.slice(Math.max(0, commands.length - cap))
   };
   return state.runtime.commandLog;
 }
@@ -53,7 +68,7 @@ export class CommandBus {
     return this.registry.types();
   }
 
-  execute(type, payload = {}, { reason = null, emit = true, validate = true } = {}) {
+  execute(type, payload = {}, { reason = null, emit = false, validate = true } = {}) {
     let result;
     let recorded = null;
     const commandType = String(type ?? '');
