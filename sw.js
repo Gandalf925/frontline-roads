@@ -1,7 +1,7 @@
 'use strict';
 const CACHE_PREFIX = 'frontline-roads-';
-const RELEASE_VERSION = '0.38.80';
-const CACHE_NAME = `${CACHE_PREFIX}v0-38-80-phase5-pages-runtime-hotfix`;
+const RELEASE_VERSION = '0.38.81';
+const CACHE_NAME = `${CACHE_PREFIX}v0-38-81-phase5-pages-road-config-hotfix`;
 const APP_SHELL = [
   './',
   './index.html',
