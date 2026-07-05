@@ -1,4 +1,4 @@
-export const APP_VERSION = '0.38.82-phase5-barrier-command-hotfix';
+export const APP_VERSION = '0.38.83-phase5-command-performance-hotfix';
 export const SAVE_KEY = 'frontline_roads_refactor_v2';
 export const SCHEMA_VERSION = 2;
 
